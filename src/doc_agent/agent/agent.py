@@ -112,7 +112,10 @@ class Agent:
     def synthesize(self, state: dict) -> Answer:
         """Grounded, cited answer; abstain if unsupported (no-hallucination)."""
         cfg = self.full_cfg
-        if not postprocess.evidence_sufficient(state, cfg):
+        if not postprocess.dense_sufficient(state, cfg):
+            return postprocess.abstain()
+        if not postprocess.rerank_sufficient(state, cfg):
+            state["stop_reason"] = "abstain_low_rerank_score"
             return postprocess.abstain()
 
         evidence = postprocess.evidence_chunks(state)[: int(self.cfg.get("evidence_chunks", 5))]

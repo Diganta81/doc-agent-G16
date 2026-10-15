@@ -98,11 +98,13 @@ class Rerank(Tool):
                 chunks.append(self.ctx.chunks_by_id[item])
             else:
                 return _fail(f"unknown candidate {item!r}")
-        reranked, warning = chunks, None
-        try:
-            reranked = rerank_mod.rerank(query, chunks, self.ctx.cfg)
-        except (ImportError, OSError) as exc:        # model unavailable -> keep dense order
-            warning = str(exc)
+        reranked, scores, warning = chunks, [], None
+        if self.ctx.cfg["retrieve"].get("rerank") and len(chunks) > 1:
+            try:
+                pairs = rerank_mod.rerank_with_scores(query, chunks, self.ctx.cfg)
+                reranked, scores = [c for c, _ in pairs], [round(s, 4) for _, s in pairs]
+            except (ImportError, OSError) as exc:        # model unavailable -> keep dense order
+                warning = str(exc)
         payload = {
             "query": query,
             "chunk_ids": [c.id for c in reranked],
@@ -110,8 +112,11 @@ class Rerank(Tool):
             "top_score": retriever_mod.top_score(reranked),   # dense score; threshold stays valid
             "k": len(reranked),
             "n": len(reranked),
-            "reranked": warning is None and bool(self.ctx.cfg["retrieve"].get("rerank")),
+            "reranked": bool(scores),
         }
+        if scores:
+            payload["rerank_scores"] = scores
+            payload["rerank_top_score"] = scores[0]
         if warning:
             payload["warning"] = warning
         return ToolResult(ok=True, payload=payload)

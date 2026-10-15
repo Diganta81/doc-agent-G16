@@ -50,9 +50,32 @@ def evidence_chunks(state: dict) -> list[Chunk]:
     return []
 
 
-def evidence_sufficient(state: dict, cfg: dict) -> bool:
+def latest_payload(state: dict) -> dict:
+    for result in reversed(state.get("obs", [])):
+        payload = getattr(result, "payload", None) or {}
+        if getattr(result, "ok", False) and "chunks" in payload:
+            return payload
+    return {}
+
+
+def dense_sufficient(state: dict, cfg: dict) -> bool:
     chunks = evidence_chunks(state)
     return bool(chunks) and max(c.score for c in chunks) >= cfg["retrieve"]["weak_threshold"]
+
+
+def rerank_sufficient(state: dict, cfg: dict) -> bool:
+    """Optional second gate: the cross-encoder's best score must reach retrieve.rerank_min_score.
+
+    Dense cosine cannot separate out-of-corpus questions from weak in-corpus ones, the cross-encoder
+    can. Unset (None) = gate off; also passes when no rerank score was produced.
+    """
+    floor = cfg["retrieve"].get("rerank_min_score")
+    top = latest_payload(state).get("rerank_top_score")
+    return floor is None or top is None or top >= floor
+
+
+def evidence_sufficient(state: dict, cfg: dict) -> bool:
+    return dense_sufficient(state, cfg) and rerank_sufficient(state, cfg)
 
 
 def parse_citations(raw: str, evidence: list[Chunk]) -> tuple[str, list[Citation]]:

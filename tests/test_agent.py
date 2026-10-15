@@ -145,3 +145,44 @@ def test_memory_recall_ranks_by_overlap():
     mem.add(ToolResult(ok=True, payload={"query": "ভাইরাস মোজাইক", "chunks": []}))
     assert mem.recall("ভাইরাস রোগ")[0].payload["query"] == "ভাইরাস মোজাইক"
     assert mem.recall("সম্পর্কহীন") == []
+
+
+def _fake_reranker(monkeypatch, scores):
+    from doc_agent.retrieval import rerank as rerank_mod
+
+    class FakeCE:
+        def predict(self, pairs, show_progress_bar=False):
+            return scores[: len(pairs)]
+    monkeypatch.setitem(rerank_mod._MODEL_CACHE, "fake/cross-encoder", FakeCE())
+
+
+def test_rerank_scores_reach_the_trace(cfg, isolated, monkeypatch):
+    _fake_reranker(monkeypatch, [0.1 * i for i in range(10)])
+    cfg["retrieve"]["rerank"] = True
+    run_agent(cfg, FakeRetriever(lambda q, k: 0.8))
+    rerank_step = [s for s in trace_lines(isolated) if s["tool"] == "rerank"][0]
+    assert rerank_step["obs"]["rerank_top_score"] == 0.9 and rerank_step["obs"]["reranked"] is True
+
+
+def test_low_rerank_score_abstains_when_floor_is_set(cfg, isolated, monkeypatch):
+    _fake_reranker(monkeypatch, [0.05] * 10)
+    cfg["retrieve"].update(rerank=True, rerank_min_score=0.3)
+    ans = run_agent(cfg, FakeRetriever(lambda q, k: 0.8))      # dense score is fine, cross-encoder says no
+    assert not ans.grounded and ans.citations == []
+    assert trace_lines(isolated)[-1]["obs"]["stop_reason"] == "abstain_low_rerank_score"
+
+
+def test_rerank_floor_off_by_default(cfg, isolated, monkeypatch):
+    _fake_reranker(monkeypatch, [0.05] * 10)
+    cfg["retrieve"]["rerank"] = True
+    assert run_agent(cfg, FakeRetriever(lambda q, k: 0.8)).grounded
+
+
+def test_extractive_answer_is_one_ocr_sentence_not_the_whole_chunk(cfg, isolated):
+    """The OCR writes the danda as '|', so sentences must split there (Kaggle run: 600-char answers)."""
+    retriever = FakeRetriever(lambda q, k: 0.8)
+    ocr_text = ("ব্যাকটেরিয়া আমাদের কেবল ক্ষতি করে তাহা ঠিক নয় | অণুবীক্ষণযন্ত্রের সাহায্যে প্রথম ব্যাকটেরিয়া "
+                "অবলোকন করেন ১৬৭৬ খ্রিস্টাব্দে | পাস্তুর জীবাণুবিজ্ঞানের জনক |")
+    retriever.chunks[0] = retriever.chunks[0].model_copy(update={"text": ocr_text})
+    ans = run_agent(cfg, retriever, question="কোন সালে প্রথম ব্যাকটেরিয়া অবলোকন করা হয়?")
+    assert "১৬৭৬" in ans.text and "জীবাণুবিজ্ঞানের" not in ans.text

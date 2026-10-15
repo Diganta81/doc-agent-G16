@@ -20,6 +20,16 @@ def _get_model(cfg: dict) -> Any:
     return _MODEL_CACHE[name]
 
 
+def rerank_with_scores(query: str, candidates: list[Chunk], cfg: dict) -> list[tuple[Chunk, float]]:
+    """Cross-encoder (chunk, score) pairs, best first. Needs the model even if cfg rerank is off."""
+    if not candidates:
+        return []
+    model = _get_model(cfg)
+    scores = model.predict([(query, chunk.text) for chunk in candidates], show_progress_bar=False)
+    order = sorted(range(len(candidates)), key=lambda i: (-float(scores[i]), i))
+    return [(candidates[i], float(scores[i])) for i in order]
+
+
 def rerank(query: str, candidates: list[Chunk], cfg: dict) -> list[Chunk]:
     """Cross-encoder rerank if cfg['retrieve']['rerank'].
 
@@ -29,9 +39,4 @@ def rerank(query: str, candidates: list[Chunk], cfg: dict) -> list[Chunk]:
     """
     if not cfg["retrieve"].get("rerank") or len(candidates) < 2:
         return list(candidates)
-
-    model = _get_model(cfg)
-    pairs = [(query, chunk.text) for chunk in candidates]
-    scores = model.predict(pairs, show_progress_bar=False)
-    order = sorted(range(len(candidates)), key=lambda i: (-float(scores[i]), i))
-    return [candidates[i] for i in order]
+    return [chunk for chunk, _ in rerank_with_scores(query, candidates, cfg)]

@@ -10,7 +10,8 @@ INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
 _MARKER = re.compile(r"\[C(\d+)\]")
 # Bengali vowel signs are combining marks (not \w), so split on whitespace/punctuation instead.
 _TOKEN = re.compile(r"[^\s.,;:!?()\[\]{}\"'“”‘’।॥\-–—/|<>]+")
-_SENTENCE = re.compile(r"[^।.!?\n]+[।.!?]?")
+# The OCR reads the Bengali danda as "|" as often as "।", so both end a sentence.
+_SENTENCE = re.compile(r"[^।|.!?\n]+[।|.!?]?")
 
 
 def tokens(text: str) -> list[str]:

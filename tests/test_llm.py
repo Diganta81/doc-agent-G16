@@ -52,3 +52,9 @@ def test_format_answer_rules():
     assert not postprocess.format_answer("কিছু একটা", []).grounded                  # no citation
     ghost = [postprocess.Citation(chunk_id="zz", span=(0, 3))]
     assert not postprocess.format_answer("ব্যাকটেরিয়া", ghost, evidence=chunks).grounded
+
+
+def test_pipe_and_danda_both_end_a_sentence():
+    text = "প্রথম বাক্য | দ্বিতীয় বাক্য। তৃতীয় বাক্য?"
+    parts = [m.group().strip() for m in postprocess._SENTENCE.finditer(text)]
+    assert parts == ["প্রথম বাক্য |", "দ্বিতীয় বাক্য।", "তৃতীয় বাক্য?"]

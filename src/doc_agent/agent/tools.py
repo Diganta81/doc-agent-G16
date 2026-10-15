@@ -157,7 +157,7 @@ class Extract(Tool):
             raw = [y for y in re.findall(r"\b(1[0-9]{3}|20[0-9]{2})\b", to_ascii_digits(text))]
             values = [float(y) for y in raw]
         else:   # any other field = keyword: return the sentences that mention it
-            raw = [m.group().strip() for m in re.finditer(r"[^।.!?\n]+[।.!?]?", text)
+            raw = [m.group().strip() for m in re.finditer(r"[^।|.!?\n]+[।|.!?]?", text)
                    if key in m.group().lower()]
             values = list(raw)
         return ToolResult(ok=True, payload={"field": field, "chunk_id": chunk_id,

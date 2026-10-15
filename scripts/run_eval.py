@@ -130,7 +130,11 @@ def evaluate(cfg: dict, tasks: list[dict], retriever, trace_path: Path, verbose:
         if verbose:
             print(f"[{row['id']}] ok={row['ok']} grounded={row['grounded']} k={row['k_path']} "
                   f"top={row['top_score_path']}", flush=True)
-    return {"summary": summarize(rows, trace_path), "rows": rows}
+    summary = summarize(rows, trace_path)
+    summary.update(llm_provider=llm.provider, llm_calls=llm.calls, llm_failures=llm.failures)
+    if llm.failures:
+        summary["llm_last_error"] = llm.last_error        # failures silently fall back to extractive
+    return {"summary": summary, "rows": rows}
 
 
 def _mean(values: list) -> float:

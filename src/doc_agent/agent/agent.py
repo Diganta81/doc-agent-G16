@@ -97,7 +97,7 @@ class Agent:
             return query
         try:
             rewritten = self.llm.complete(
-                prompts.DECIDE.format(question=query, attempt=attempt), max_tokens=64)
+                prompts.DECIDE.format(question=query, attempt=attempt), max_tokens=256)
         except LLMUnavailable:
             return query
         rewritten = rewritten.strip().splitlines()[0].strip() if rewritten.strip() else ""

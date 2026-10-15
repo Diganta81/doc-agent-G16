@@ -75,12 +75,13 @@ index:     {type: "faiss:hnsw", path: "data/index", chunk_tokens: 256, overlap: 
 # Kaggle run (2026-10-15, 14 answerable tasks): dense recall@1 0.43; MiniLM rerank 0.21 (English-only, hurts);
 # bge-reranker-v2-m3 0.79. Dense top scores: in-corpus 0.51-0.73, out-of-corpus 0.38-0.52, so the old 0.35
 # threshold never fired. 0.45 sits between 0.38 and 0.51 - provisional, tuned on test-chapter questions; re-check
-# on validation-chapter questions. rerank_min_score (cross-encoder floor) stays null until calibrated.
-retrieve:  {k: 10, k_step: 10, k_max: 40, weak_threshold: 0.45, rerank: true, reranker: "BAAI/bge-reranker-v2-m3", rerank_min_score: null}   # k_step/k_max/weak_threshold drive evidence-gated re-search
+# on validation-chapter questions. rerank_min_score: bge-reranker top scores were 0.003-0.027 for the 3 out-of-corpus
+# questions and 0.11-0.998 for the 14 in-corpus ones (Kaggle run 2), so 0.05 separates them - n is small, re-check.
+retrieve:  {k: 10, k_step: 10, k_max: 40, weak_threshold: 0.45, rerank: true, reranker: "BAAI/bge-reranker-v2-m3", rerank_min_score: 0.05}   # k_step/k_max/weak_threshold drive evidence-gated re-search
 agent:     {max_steps: 8, autonomy: "act-with-approval", budget_usd: 0.05, cost_per_call_usd: 0.0, research: true, reformulate: true, evidence_chunks: 5, min_support: 0.3}
 # provider "none" = extractive baseline answers (no API key needed). For a real LLM set provider to
 # "openai_compat" plus base_url/model (Groq, Gemini-OpenAI, OpenRouter, ...) and put LLM_API_KEY in .env.
-llm:       {provider: "none", base_url: "", model: "", temperature: 0.0, max_tokens: 1024, timeout_s: 60, retries: 3}
+llm:       {provider: "none", base_url: "", model: "", temperature: 0.0, max_tokens: 1024, timeout_s: 60, retries: 3, min_interval_s: 0}
 rl:        {algo: "ppo", train_policy: false}                         # bonus: set true
 serve:     {batch: true}
 deploy:    {target: "hf-spaces"}

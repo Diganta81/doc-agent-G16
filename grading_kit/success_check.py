@@ -1,6 +1,28 @@
 """Per-task verifier. FIXED signature."""
 from __future__ import annotations
 
+import re
+import unicodedata
+
+_BN_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
+_DROP = re.compile(r"[\s.,;:!?()\[\]{}\"'“”‘’।॥\-–—/|]+")
+
+
+def _norm(text: str) -> str:
+    return _DROP.sub("", unicodedata.normalize("NFC", text or "").translate(_BN_DIGITS).lower())
+
+
 def check(task: dict, answer: dict) -> bool:
-    """Return True if `answer` satisfies `task` (exact for fact tasks; judge for open). IMPLEMENT."""
-    raise NotImplementedError("verify a task result")
+    """Return True if `answer` satisfies `task` (exact for fact tasks; judge for open).
+
+    - abstention task: the answer must be ungrounded with no citations (it declined to answer).
+    - verifiable task: the answer is grounded, cited, and contains the normalised gold string.
+    - judged task: scored by an LLM-judge / human, so only the grounding contract is checked here.
+    """
+    grounded = bool(answer.get("grounded")) and bool(answer.get("citations"))
+    if task.get("abstain"):
+        return not answer.get("grounded") and not answer.get("citations")
+    if task.get("verifiable"):
+        gold = _norm(task.get("gold", ""))
+        return grounded and bool(gold) and gold in _norm(answer.get("text", ""))
+    return grounded

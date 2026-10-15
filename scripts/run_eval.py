@@ -100,6 +100,7 @@ def evaluate(cfg: dict, tasks: list[dict], retriever, trace_path: Path, verbose:
         wiring.register_all(cfg)                                   # fresh guardrail budget per query
         recorder = RecordingRetriever(retriever)
         agent = Agent(cfg, recorder, llm=llm, tools=build_tools(ToolContext(cfg, recorder)))
+        failures_before = llm.failures
         started = time.perf_counter()
         answer = agent.answer_safely(task["question"])
         latency = time.perf_counter() - started
@@ -125,13 +126,15 @@ def evaluate(cfg: dict, tasks: list[dict], retriever, trace_path: Path, verbose:
             "groundedness": metrics.groundedness(answer, chunk_text),
             "citation_accuracy": metrics.citation_accuracy(answer, chunk_text),
             "latency_s": round(latency, 3),
+            "llm_failed": llm.failures > failures_before,   # True = this answer may be an extractive fallback
         }
         rows.append(row)
         if verbose:
             print(f"[{row['id']}] ok={row['ok']} grounded={row['grounded']} k={row['k_path']} "
                   f"top={row['top_score_path']}", flush=True)
     summary = summarize(rows, trace_path)
-    summary.update(llm_provider=llm.provider, llm_calls=llm.calls, llm_failures=llm.failures)
+    summary.update(llm_provider=llm.provider, llm_calls=llm.calls, llm_failures=llm.failures,
+                   tasks_with_llm_failure=sum(r["llm_failed"] for r in rows))
     if llm.failures:
         summary["llm_last_error"] = llm.last_error        # failures silently fall back to extractive
     return {"summary": summary, "rows": rows}

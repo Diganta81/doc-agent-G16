@@ -70,3 +70,12 @@ def test_failures_are_counted_so_eval_can_show_silent_fallbacks(cfg):
     with pytest.raises(LLMUnavailable):
         llm.complete("x")
     assert llm.calls == 1 and llm.failures == 1 and "429" in llm.last_error
+
+
+def test_min_interval_spaces_calls(cfg):
+    import time
+    cfg["llm"] = {"provider": "openai_compat", "base_url": "http://x", "model": "m", "min_interval_s": 0.15}
+    llm = LLM(cfg, transport=lambda *a: {"choices": [{"message": {"content": "ok"}}]})
+    started = time.monotonic()
+    llm.complete("a"); llm.complete("b")
+    assert time.monotonic() - started >= 0.14

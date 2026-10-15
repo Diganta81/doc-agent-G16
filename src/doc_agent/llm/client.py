@@ -30,6 +30,7 @@ class LLM:
         self._transport = transport or self._http
         self.calls = 0
         self.failures = 0
+        self._last_call = 0.0
         self.last_error = ""
 
     @property
@@ -50,6 +51,7 @@ class LLM:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {settings.llm_api_key}",
         }
+        self._throttle()
         self.calls += 1
         try:
             data = self._transport(url, headers, body)
@@ -61,6 +63,13 @@ class LLM:
             error = LLMUnavailable(f"unexpected LLM response shape: {exc}")
             self._record_failure(error)
             raise error from exc
+
+    def _throttle(self) -> None:
+        """Keep at least llm.min_interval_s between calls (free-tier requests-per-minute limits)."""
+        wait = float(self.llm_cfg.get("min_interval_s", 0)) - (time.monotonic() - self._last_call)
+        if wait > 0:
+            time.sleep(wait)
+        self._last_call = time.monotonic()
 
     def _record_failure(self, exc: Exception) -> None:
         """Count failures so an eval run can show how many answers silently fell back to extractive."""

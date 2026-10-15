@@ -135,9 +135,10 @@ def main() -> None:
 
     @step("2_reranker_comparison")
     def _rerank():
-        """Does a cross-encoder improve ranking of the gold page among the dense top-20?"""
+        """Does a cross-encoder improve ranking of the gold page among the dense top-20? Also: can its
+        top score tell out-of-corpus questions from in-corpus ones (candidate retrieve.rerank_min_score)?"""
         out = {}
-        pool = {t["id"]: retriever.retrieve(t["question"], 20) for t in answerable}
+        pool = {t["id"]: retriever.retrieve(t["question"], 20) for t in tasks}
         gold = {t["id"]: [run_eval._base(p) for p in t["gold_pages"]] for t in answerable}
 
         def score(order_fn):
@@ -157,6 +158,17 @@ def main() -> None:
             try:
                 out[name] = score(lambda t, c=c: rerank_mod.rerank(t["question"], pool[t["id"]], c))
                 out[name]["seconds_for_all_tasks"] = round(time.perf_counter() - started, 1)
+                top = {t["id"]: round(rerank_mod.rerank_with_scores(t["question"], pool[t["id"]][:10], c)[0][1], 4)
+                       for t in tasks}
+                ans_top = [top[t["id"]] for t in answerable]
+                neg_top = [top[t["id"]] for t in tasks if t.get("abstain")]
+                out[name]["top_rerank_score_per_task"] = top
+                out[name]["rerank_top_answerable_min"] = min(ans_top, default=None)
+                out[name]["rerank_top_abstain_max"] = max(neg_top, default=None)
+                if ans_top and neg_top:
+                    lo, hi = max(neg_top), min(ans_top)
+                    out[name]["rerank_min_score_hint"] = (round((lo + hi) / 2, 4) if lo < hi
+                                                         else "overlap: no single cross-encoder floor separates them")
             except Exception:                               # noqa: BLE001
                 out[name] = {"error": traceback.format_exc()}
         print(json.dumps(out, indent=2))

@@ -25,4 +25,4 @@ def build_knowledge_base(cfg: dict) -> None:
 def answer(query_text: str, cfg: dict):
     wiring.register_all(cfg)
     r = retriever.Retriever(cfg)                    # Stage 5
-    return agent.Agent(cfg, r).run(query_text)      # Stage 6 (seams run inside the loop)
+    return agent.Agent(cfg, r).answer_safely(query_text)   # Stage 6 (seams run inside the loop)

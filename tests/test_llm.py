@@ -58,3 +58,15 @@ def test_pipe_and_danda_both_end_a_sentence():
     text = "প্রথম বাক্য | দ্বিতীয় বাক্য। তৃতীয় বাক্য?"
     parts = [m.group().strip() for m in postprocess._SENTENCE.finditer(text)]
     assert parts == ["প্রথম বাক্য |", "দ্বিতীয় বাক্য।", "তৃতীয় বাক্য?"]
+
+
+def test_failures_are_counted_so_eval_can_show_silent_fallbacks(cfg):
+    cfg["llm"] = {"provider": "openai_compat", "base_url": "http://x", "model": "m"}
+
+    def boom(*args):
+        raise LLMUnavailable("HTTP 429 quota")
+
+    llm = LLM(cfg, transport=boom)
+    with pytest.raises(LLMUnavailable):
+        llm.complete("x")
+    assert llm.calls == 1 and llm.failures == 1 and "429" in llm.last_error

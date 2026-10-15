@@ -23,6 +23,10 @@ class Retriever:
             self._index, self._chunks = store.load(self.cfg)
         return self._index, self._chunks
 
+    def all_chunks(self) -> list[Chunk]:
+        """Every indexed chunk (for page reads, citation checks and id lookups)."""
+        return list(self._load()[1])
+
     def retrieve(self, query: str, k: int | None = None) -> list[Chunk]:
         """Return the highest-scoring chunks for a text query."""
         if not isinstance(query, str) or not query.strip():

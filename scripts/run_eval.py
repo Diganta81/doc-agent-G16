@@ -93,6 +93,10 @@ def evaluate(cfg: dict, tasks: list[dict], retriever, trace_path: Path, verbose:
         trace_path.unlink()
     check = _load_checker()
     llm = LLM(cfg)
+    if llm.provider != "none" and not llm.available:
+        # Refuse to continue: silently falling back to extractive answers looks like an LLM run but is not.
+        raise SystemExit(f"llm.provider={llm.provider!r} but LLM_API_KEY is empty in this process; "
+                         "set it (see scripts/kaggle_a3_check.py docstring) or use llm.provider=none")
     chunk_text = {c.id: c.text for c in retriever.all_chunks()}
     chunk_pages = {c.id: c.page_ids for c in retriever.all_chunks()}
     rows = []
@@ -125,6 +129,8 @@ def evaluate(cfg: dict, tasks: list[dict], retriever, trace_path: Path, verbose:
             "cited_gold_page": bool(cited_pages & set(gold)) if gold else None,
             "groundedness": metrics.groundedness(answer, chunk_text),
             "citation_accuracy": metrics.citation_accuracy(answer, chunk_text),
+            "gold_similarity": (round(metrics.gold_similarity(answer.text, task["gold"]), 3)
+                                if task.get("verifiable") else None),
             "latency_s": round(latency, 3),
             "llm_failed": llm.failures > failures_before,   # True = this answer may be an extractive fallback
         }

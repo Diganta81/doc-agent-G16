@@ -79,3 +79,20 @@ def test_min_interval_spaces_calls(cfg):
     started = time.monotonic()
     llm.complete("a"); llm.complete("b")
     assert time.monotonic() - started >= 0.14
+
+
+def test_key_with_stray_whitespace_is_stripped(cfg, monkeypatch):
+    from doc_agent.llm import client
+    cfg["llm"] = {"provider": "openai_compat", "base_url": "http://x", "model": "m"}
+    seen = {}
+    monkeypatch.setattr(client.settings, "llm_api_key", "  secret-key\n")
+    llm = LLM(cfg, transport=lambda url, headers, body: seen.update(h=headers) or
+              {"choices": [{"message": {"content": "ok"}}]})
+    assert llm.complete("x") == "ok" and seen["h"]["Authorization"] == "Bearer secret-key"
+
+
+def test_whitespace_only_key_counts_as_missing(cfg, monkeypatch):
+    from doc_agent.llm import client
+    cfg["llm"] = {"provider": "openai_compat", "base_url": "http://x", "model": "m"}
+    monkeypatch.setattr(client.settings, "llm_api_key", " \n")
+    assert not LLM(cfg).available

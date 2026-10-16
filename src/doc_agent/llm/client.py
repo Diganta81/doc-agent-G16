@@ -35,7 +35,7 @@ class LLM:
 
     @property
     def available(self) -> bool:
-        return self.provider != "none" and bool(settings.llm_api_key or self._injected)
+        return self.provider != "none" and bool(settings.llm_api_key.strip() or self._injected)
 
     def complete(self, prompt: str, **kw) -> str:
         if not self.available:
@@ -49,7 +49,7 @@ class LLM:
         url = str(self.llm_cfg.get("base_url", "")).rstrip("/") + "/chat/completions"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {settings.llm_api_key}",
+            "Authorization": f"Bearer {settings.llm_api_key.strip()}",
         }
         self._throttle()
         self.calls += 1
@@ -92,6 +92,6 @@ class LLM:
                     continue
                 detail = exc.read().decode("utf-8", "replace")[:200]
                 raise LLMUnavailable(f"LLM request failed: HTTP {exc.code} {detail}") from exc
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
                 raise LLMUnavailable(f"LLM request failed: {exc}") from exc
         raise LLMUnavailable("LLM request failed after retries")

@@ -75,3 +75,11 @@ def test_ablation_reports_deltas(cfg):
     assert out["baseline"]["recall"] == 0.9
     assert out["delta"]["no_rerank"]["recall"] == pytest.approx(-0.2)
     assert out["delta"]["no_research"]["recall"] == pytest.approx(-0.1)
+
+
+def test_gold_similarity_separates_near_miss_from_absent():
+    assert metrics.gold_similarity("যথা বোর্দোমিশ্চার ইত্যাদি", "বোর্দোমিশ্চার") == 1.0
+    near = metrics.gold_similarity("যথা বোর্দোমিক্সচ্যার, বার্গান্ডিমিকচ্যার", "বোর্দোমিশ্চার")
+    assert 0.6 < near < 1.0                          # OCR spelling variant of the right word
+    assert metrics.gold_similarity("কিছুই নেই এখানে অন্য বিষয়", "বোর্দোমিশ্চার") < 0.4
+    assert metrics.gold_similarity("", "x") == 0.0

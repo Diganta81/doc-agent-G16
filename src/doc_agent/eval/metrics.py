@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from difflib import SequenceMatcher
 import unicodedata
 from collections import Counter
 from pathlib import Path
@@ -23,6 +24,21 @@ def contains_gold(pred: str, gold: str) -> bool:
     """Verifiable-question check: the normalised gold answer occurs in the normalised prediction."""
     g = normalize(gold)
     return bool(g) and g in normalize(pred)
+
+
+def gold_similarity(pred: str, gold: str) -> float:
+    """Best character-level match (0-1) of the gold string anywhere in the prediction.
+
+    1.0 = exact (same as contains_gold). Values around 0.7-0.9 are near-misses such as an OCR
+    spelling variant of the right word; low values mean the gold answer is simply not there.
+    """
+    p, g = normalize(pred), normalize(gold)
+    if not p or not g:
+        return 0.0
+    if g in p:
+        return 1.0
+    return max(SequenceMatcher(None, p[i:i + len(g)], g).ratio()
+               for i in range(max(1, len(p) - len(g) + 1)))
 
 
 def ocr_f1(pred: str, gold: str) -> float:

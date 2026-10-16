@@ -44,6 +44,7 @@ import run_eval  # noqa: E402
 from doc_agent import config  # noqa: E402
 from doc_agent.eval import ablation, metrics  # noqa: E402
 from doc_agent.llm.client import LLM  # noqa: E402
+from doc_agent.settings import settings  # noqa: E402
 from doc_agent.retrieval import rerank as rerank_mod  # noqa: E402
 from doc_agent.retrieval.retriever import Retriever  # noqa: E402
 
@@ -112,6 +113,7 @@ def main() -> None:
         llm = LLM(cfg)
         info["llm_provider"] = llm.provider
         info["llm_key_present"] = llm.available
+        info["llm_key_length"] = len(settings.llm_api_key.strip())   # length only, never the key
         if llm.provider != "none":
             try:                                            # one real call: proves key, model name and quota
                 info["llm_probe_reply"] = llm.complete("Reply with the single word: ok", max_tokens=64)

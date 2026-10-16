@@ -8,8 +8,19 @@ Run it in a Kaggle notebook (GPU on, internet on) and paste back kaggle_a3_resul
     # upload the folder holding index.faiss + chunks.jsonl + metadata.json as a Kaggle dataset, then:
     !python scripts/kaggle_a3_check.py --index /kaggle/input/<your-index-dataset> --device cuda
 
-Optional (real LLM instead of the extractive baseline): add LLM_API_KEY as a Kaggle secret / env var and
-    ... --set llm.provider=openai_compat --set llm.base_url=https://api.groq.com/openai/v1 --set llm.model=<model>
+Optional (real LLM instead of the extractive baseline): add LLM_API_KEY as a Kaggle secret, then run it
+from ONE python cell so the key is certainly in the child process environment:
+
+    import os, subprocess
+    from kaggle_secrets import UserSecretsClient
+    env = dict(os.environ, PYTHONPATH="src", LLM_API_KEY=UserSecretsClient().get_secret("LLM_API_KEY"))
+    subprocess.run(["python", "scripts/kaggle_a3_check.py", "--index", "data/index", "--device", "cuda",
+                    "--set", "llm.provider=openai_compat",
+                    "--set", "llm.base_url=https://generativelanguage.googleapis.com/v1beta/openai",
+                    "--set", "llm.model=gemini-3.8-flash", "--set", "llm.min_interval_s=5",
+                    "--out", "kaggle_a3_results_llm.json"], env=env, check=True)
+
+The script makes one probe call first and stops with an error if the key/model does not work.
 
 Every step is wrapped, so one failure does not hide the others; errors are recorded in the JSON.
 """
@@ -32,6 +43,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import run_eval  # noqa: E402
 from doc_agent import config  # noqa: E402
 from doc_agent.eval import ablation, metrics  # noqa: E402
+from doc_agent.llm.client import LLM  # noqa: E402
 from doc_agent.retrieval import rerank as rerank_mod  # noqa: E402
 from doc_agent.retrieval.retriever import Retriever  # noqa: E402
 
@@ -97,10 +109,26 @@ def main() -> None:
         info["n_chunks"] = len(chunks)
         info["n_pages_in_index"] = len({run_eval._base(p) for c in chunks for p in c.page_ids})
         info["sample_page_ids"] = chunks[0].page_ids if chunks else None
+        llm = LLM(cfg)
+        info["llm_provider"] = llm.provider
+        info["llm_key_present"] = llm.available
+        if llm.provider != "none":
+            try:                                            # one real call: proves key, model name and quota
+                info["llm_probe_reply"] = llm.complete("Reply with the single word: ok", max_tokens=64)
+                info["llm_probe_ok"] = True
+            except Exception as exc:                        # noqa: BLE001
+                info["llm_probe_ok"] = False
+                info["llm_probe_error"] = str(exc)[:300]
         info["gold_pages_present"] = {
             p: p in {run_eval._base(q) for c in chunks for q in c.page_ids}
             for p in sorted({g for t in answerable for g in t["gold_pages"]})}
         return info
+
+    env = RESULTS.get("0_environment", {})
+    if cfg.get("llm", {}).get("provider", "none") != "none" and not env.get("llm_probe_ok"):
+        Path(args.out).write_text(json.dumps(RESULTS, ensure_ascii=False, indent=2), encoding="utf-8")
+        sys.exit("LLM requested but the probe call failed - see 0_environment.llm_probe_error / llm_key_present. "
+                 "Nothing else was run, so no silent extractive results.")
 
     @step("1_dense_retrieval_and_threshold")
     def _dense():

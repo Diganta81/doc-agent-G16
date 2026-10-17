@@ -28,6 +28,10 @@ from doc_agent.retrieval.retriever import Retriever
 ROOT = Path(__file__).resolve().parent.parent
 
 
+class LLMStopped(RuntimeError):
+    """The LLM failed (quota, outage, bad key) mid-run. Stop instead of mixing in extractive fallbacks."""
+
+
 def _load_checker():
     spec = importlib.util.spec_from_file_location("success_check", ROOT / "grading_kit/success_check.py")
     module = importlib.util.module_from_spec(spec)
@@ -85,7 +89,8 @@ def _dedupe(seq: list[str]) -> list[str]:
     return out
 
 
-def evaluate(cfg: dict, tasks: list[dict], retriever, trace_path: Path, verbose: bool = True) -> dict:
+def evaluate(cfg: dict, tasks: list[dict], retriever, trace_path: Path, verbose: bool = True,
+             max_llm_failures: int = 0) -> dict:
     """Run every task once. Returns {"summary": {...numbers...}, "rows": [...]}."""
     logging_conf.TRACE_PATH = trace_path
     trace_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,11 +140,17 @@ def evaluate(cfg: dict, tasks: list[dict], retriever, trace_path: Path, verbose:
             "llm_failed": llm.failures > failures_before,   # True = this answer may be an extractive fallback
         }
         rows.append(row)
+        if llm.provider != "none" and llm.failures > max_llm_failures:
+            raise LLMStopped(
+                f"LLM failed after task {task['id']} ({llm.failures} failed calls; last error: {llm.last_error}). "
+                f"Stopped so no extractive fallback is reported as an LLM result. {len(rows) - 1} earlier tasks "
+                "are cached (llm.cache_path): rerun later and they cost no quota.")
         if verbose:
             print(f"[{row['id']}] ok={row['ok']} grounded={row['grounded']} k={row['k_path']} "
                   f"top={row['top_score_path']}", flush=True)
     summary = summarize(rows, trace_path)
-    summary.update(llm_provider=llm.provider, llm_calls=llm.calls, llm_failures=llm.failures,
+    summary.update(llm_provider=llm.provider, llm_calls=llm.calls, llm_cache_hits=llm.cache_hits,
+                   llm_failures=llm.failures,
                    tasks_with_llm_failure=sum(r["llm_failed"] for r in rows))
     if llm.failures:
         summary["llm_last_error"] = llm.last_error        # failures silently fall back to extractive
@@ -185,20 +196,23 @@ def main() -> None:
     parser.add_argument("--out", default=str(ROOT / "reports/eval_results.json"))
     parser.add_argument("--trace", default=str(ROOT / "traces/run.jsonl"))
     parser.add_argument("--set", dest="overrides", action="append", default=[], metavar="a.b=value")
+    parser.add_argument("--max-llm-failures", type=int, default=0,
+                        help="stop the run when more LLM calls than this have failed (default 0 = strict)")
     parser.add_argument("--ablate", action="store_true", help="also run the one-stage-off ablations")
     args = parser.parse_args()
 
     cfg = apply_overrides(config.load(args.config), args.overrides)
     tasks = load_tasks(Path(args.tasks))
     retriever = Retriever(cfg)
-    result = evaluate(cfg, tasks, retriever, Path(args.trace))
+    result = evaluate(cfg, tasks, retriever, Path(args.trace), max_llm_failures=args.max_llm_failures)
     print(json.dumps(result["summary"], ensure_ascii=False, indent=2))
 
     out = {"config_overrides": args.overrides, **result}
     if args.ablate:
         scratch = Path(tempfile.mkdtemp()) / "ablation_trace.jsonl"
         out["ablation"] = ablation.run(
-            cfg, lambda c: evaluate(c, tasks, retriever, scratch, verbose=False)["summary"])
+            cfg, lambda c: evaluate(c, tasks, retriever, scratch, verbose=False,
+                                    max_llm_failures=args.max_llm_failures)["summary"])
         logging_conf.TRACE_PATH = Path(args.trace)
         print(json.dumps(out["ablation"], ensure_ascii=False, indent=2))
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)

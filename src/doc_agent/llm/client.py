@@ -1,8 +1,10 @@
 """LLM — the single LLM call wrapper (all model calls go through here)"""
 from __future__ import annotations
 
+import hashlib
 import json
 import time
+from pathlib import Path
 import urllib.error
 import urllib.request
 from typing import Callable
@@ -30,6 +32,8 @@ class LLM:
         self._transport = transport or self._http
         self.calls = 0
         self.failures = 0
+        self.cache_hits = 0
+        self._cache: dict[str, str] | None = None
         self._last_call = 0.0
         self.last_error = ""
 
@@ -51,11 +55,18 @@ class LLM:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {settings.llm_api_key.strip()}",
         }
+        key = self._cache_key(body)
+        cached = self._cache_get(key)
+        if cached is not None:
+            self.cache_hits += 1
+            return cached
         self._throttle()
         self.calls += 1
         try:
             data = self._transport(url, headers, body)
-            return str(data["choices"][0]["message"]["content"]).strip()
+            text = str(data["choices"][0]["message"]["content"]).strip()
+            self._cache_put(key, text)
+            return text
         except LLMUnavailable as exc:
             self._record_failure(exc)
             raise
@@ -63,6 +74,39 @@ class LLM:
             error = LLMUnavailable(f"unexpected LLM response shape: {exc}")
             self._record_failure(error)
             raise error from exc
+
+    def _cache_key(self, body: dict) -> str:
+        payload = json.dumps([body["model"], body["messages"], body["temperature"], body["max_tokens"]],
+                             ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _cache_file(self) -> Path | None:
+        path = self.llm_cfg.get("cache_path")
+        return Path(path) if path else None
+
+    def _cache_get(self, key: str) -> str | None:
+        """Replies are cached on disk (llm.cache_path): reruns and ablations skip calls already paid for."""
+        file = self._cache_file()
+        if file is None:
+            return None
+        if self._cache is None:
+            self._cache = {}
+            if file.exists():
+                for line in file.read_text(encoding="utf-8").splitlines():
+                    if line.strip():
+                        row = json.loads(line)
+                        self._cache[row["k"]] = row["v"]
+        return self._cache.get(key)
+
+    def _cache_put(self, key: str, text: str) -> None:
+        file = self._cache_file()
+        if file is None or not text:                     # never cache failures or empty replies
+            return
+        self._cache_get(key)                             # make sure the file was loaded first
+        self._cache[key] = text
+        file.parent.mkdir(parents=True, exist_ok=True)
+        with file.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"k": key, "v": text}, ensure_ascii=False) + "\n")
 
     def _throttle(self) -> None:
         """Keep at least llm.min_interval_s between calls (free-tier requests-per-minute limits)."""

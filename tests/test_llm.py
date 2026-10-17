@@ -96,3 +96,38 @@ def test_whitespace_only_key_counts_as_missing(cfg, monkeypatch):
     cfg["llm"] = {"provider": "openai_compat", "base_url": "http://x", "model": "m"}
     monkeypatch.setattr(client.settings, "llm_api_key", " \n")
     assert not LLM(cfg).available
+
+
+def _counting_llm(cfg, tmp_path, replies):
+    cfg["llm"] = {"provider": "openai_compat", "base_url": "http://x", "model": "m",
+                  "cache_path": str(tmp_path / "cache.jsonl")}
+    seen = []
+
+    def transport(url, headers, body):
+        seen.append(body)
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return {"choices": [{"message": {"content": reply}}]}
+
+    return LLM(cfg, transport=transport), seen
+
+
+def test_cache_skips_repeated_prompts_and_survives_a_new_client(cfg, tmp_path):
+    first, seen = _counting_llm(cfg, tmp_path, ["উত্তর"])
+    assert first.complete("প্রশ্ন") == "উত্তর" and first.complete("প্রশ্ন") == "উত্তর"
+    assert len(seen) == 1 and first.cache_hits == 1 and first.calls == 1
+    second, seen2 = _counting_llm(cfg, tmp_path, [])            # new process, same cache file
+    assert second.complete("প্রশ্ন") == "উত্তর" and seen2 == []
+
+
+def test_cache_key_covers_the_prompt(cfg, tmp_path):
+    llm, seen = _counting_llm(cfg, tmp_path, ["এক", "দুই"])
+    assert llm.complete("a") == "এক" and llm.complete("b") == "দুই" and len(seen) == 2
+
+
+def test_failures_are_not_cached_so_a_rerun_retries(cfg, tmp_path):
+    llm, _ = _counting_llm(cfg, tmp_path, [LLMUnavailable("HTTP 429"), "ঠিক আছে"])
+    with pytest.raises(LLMUnavailable):
+        llm.complete("p")
+    assert llm.complete("p") == "ঠিক আছে" and llm.failures == 1

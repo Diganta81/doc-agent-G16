@@ -21,9 +21,17 @@ def normalize(text: str) -> str:
 
 
 def contains_gold(pred: str, gold: str) -> bool:
-    """Verifiable-question check: the normalised gold answer occurs in the normalised prediction."""
+    """Verifiable-question check: the normalised gold answer occurs in the normalised prediction.
+
+    A purely numeric gold ("80") must stand alone as a number: it does not match inside "800".
+    """
     g = normalize(gold)
-    return bool(g) and g in normalize(pred)
+    if not g:
+        return False
+    if re.fullmatch(r"[0-9.,]+", g):
+        text = unicodedata.normalize("NFC", pred or "").translate(_BN_DIGITS)
+        return re.search(rf"(?<![0-9]){re.escape(g)}(?![0-9])", text) is not None
+    return g in normalize(pred)
 
 
 def gold_similarity(pred: str, gold: str) -> float:

@@ -83,3 +83,25 @@ def test_gold_similarity_separates_near_miss_from_absent():
     assert 0.6 < near < 1.0                          # OCR spelling variant of the right word
     assert metrics.gold_similarity("কিছুই নেই এখানে অন্য বিষয়", "বোর্দোমিশ্চার") < 0.4
     assert metrics.gold_similarity("", "x") == 0.0
+
+
+def test_numeric_gold_must_not_match_inside_a_longer_number():
+    """Kaggle run: gold "৮০" passed for an answer saying "৮০০ সেন্টিগ্রেড" (OCR read the degree sign as 0)."""
+    assert metrics.contains_gold("৮০ ডিগ্রি সেন্টিগ্রেডে", "৮০")
+    assert metrics.contains_gold("তাপমাত্রা 80° সেঃ", "৮০")
+    assert not metrics.contains_gold("৮০০ সেন্টিগ্রেড উষ্ণতায়", "৮০")
+    assert metrics.contains_gold("১০ এবং ৮০ ডিগ্রি", "৮০")
+    assert metrics.contains_gold("প্রথম ব্যাকটেরিয়া ১৬৭৬ খ্রিস্টাব্দে", "১৬৭৬")
+
+
+def test_success_check_uses_the_same_numeric_rule():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "success_check", Path(__file__).resolve().parent.parent / "grading_kit/success_check.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    task = {"verifiable": True, "gold": "৮০"}
+    cited = {"grounded": True, "citations": [{"chunk_id": "c"}]}
+    assert module.check(task, {**cited, "text": "৮০ ডিগ্রি"})
+    assert not module.check(task, {**cited, "text": "৮০০ সেন্টিগ্রেড"})

@@ -24,5 +24,10 @@ def check(task: dict, answer: dict) -> bool:
         return not answer.get("grounded") and not answer.get("citations")
     if task.get("verifiable"):
         gold = _norm(task.get("gold", ""))
-        return grounded and bool(gold) and gold in _norm(answer.get("text", ""))
+        text = answer.get("text", "")
+        if gold and re.fullmatch(r"[0-9.,]+", gold):
+            # a numeric gold must stand alone: "80" must not match inside "800"
+            plain = unicodedata.normalize("NFC", text).translate(_BN_DIGITS)
+            return grounded and re.search(rf"(?<![0-9]){re.escape(gold)}(?![0-9])", plain) is not None
+        return grounded and bool(gold) and gold in _norm(text)
     return grounded
